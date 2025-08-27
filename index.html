@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Smart Chat UI</title>
+
+<style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #111;
+        color: white;
+    }
+    header {
+        background-color: orange;
+        text-align: center;
+        height: 13vh;
+        padding: 10px 0;
+    }
+    h2, p {
+        margin: 5px 0;
+    }
+    .chat-container {
+        padding: 15px;
+        margin-bottom: 60px;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+    .message {
+        background: #333;
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin: 5px 0;
+        max-width: 70%;
+    }
+    .bot {
+        background: #222;
+        border-left: 4px solid orange;
+    }
+    .chat-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: #222;
+        padding: 10px;
+        display: flex;
+        gap: 8px;
+        box-sizing: border-box;
+    }
+    .chat-bar input {
+        flex: 1;
+        padding: 8px;
+        border: none;
+        border-radius: 4px;
+        outline: none;
+    }
+    .chat-bar button {
+        padding: 8px 15px;
+        background: orange;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .chat-bar button:hover {
+        background: darkorange;
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <h2>Smart Chat UI</h2>
+    <p><small>Created by Debansu Das</small></p>
+</header>
+
+<div class="chat-container" id="chatContainer"></div>
+
+<div class="chat-bar">
+    <input type="text" id="chatInput" placeholder="Type your message...">
+    <button id="sendBtn">Send</button>
+</div>
+
+<script>
+// ===== USER CUSTOM NAME =====
+let userTitle = prompt("Enter your preferred title (Boss, Sir, etc.):") || "Boss";
+
+// ===== PREDEFINED FRIENDLY REPLIES =====
+const predefinedQA = {
+    "hi": "Hey " + userTitle + "! Ki khobor?",
+    "hello": "Hello " + userTitle + "! Kemon achis?",
+    "tumi ke": "Ami tomar bondhu, tomake shob somoy shunte ar help korte ready!",
+    "bye": "Bye " + userTitle + "! Dekha hobe taratari!",
+    "kemon acho": "Besh bhalo! Tui kemon achis " + userTitle + "?",
+    "thank you": "Arre welcome re! Bondhuder majhe abar thanks dite hoy naki?",
+    "good morning": "Good morning! Cholo ajke ekta moja moja din banai!",
+    "good night": "Good night re! Bhalo kore ghumabi!"
+};
+
+// ===== GEMINI FRIEND MODE VARIABLES =====
+let isTyping = false;
+let currentTypingIndicator = null;
+const messageQueue = [];
+const API_KEY = "YOUR_GEMINI_API_KEY"; // Replace with your own Gemini API key
+const Instruction = "You are my best friend, here to chat casually and keep the conversation light and fun. Respond naturally, short and friendly, like a close buddy.";
+let conversationHistory = [];
+
+// ===== CHAT ELEMENTS =====
+const sendBtn = document.getElementById("sendBtn");
+const chatInput = document.getElementById("chatInput");
+const chatContainer = document.getElementById("chatContainer");
+
+sendBtn.addEventListener("click", sendMessage);
+chatInput.addEventListener("keypress", function(e) {
+    if (e.key === "Enter") sendMessage();
+});
+
+// ===== SEND MESSAGE =====
+function sendMessage() {
+    const messageText = chatInput.value.trim();
+    if (messageText !== "") {
+        addMessage(messageText, false);
+        enqueueMessage(messageText);
+        chatInput.value = "";
+    }
+}
+
+// ===== ADD MESSAGE TO CHAT =====
+function addMessage(text, isBot) {
+    const messageEl = document.createElement("div");
+    messageEl.classList.add("message");
+    if (isBot) messageEl.classList.add("bot");
+    messageEl.textContent = text;
+    chatContainer.appendChild(messageEl);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+// ===== TYPING INDICATOR =====
+function createTypingIndicator() {
+    const typingDiv = document.createElement("div");
+    typingDiv.classList.add("message", "bot");
+    typingDiv.textContent = "Typing...";
+    return typingDiv;
+}
+
+// ===== QUEUE SYSTEM =====
+function enqueueMessage(messageText) {
+    messageQueue.push(messageText);
+    if (!isTyping) processMessageQueue();
+}
+
+// ===== PROCESS QUEUE =====
+async function processMessageQueue() {
+    if (messageQueue.length === 0 || isTyping) return;
+
+    const userMessageText = messageQueue.shift();
+    isTyping = true;
+
+    currentTypingIndicator = createTypingIndicator();
+    chatContainer.appendChild(currentTypingIndicator);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+    try {
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        let replyText;
+        const lowerMsg = userMessageText.toLowerCase();
+
+        if (predefinedQA[lowerMsg]) {
+            replyText = predefinedQA[lowerMsg];
+        } else {
+            replyText = await getGeminiResponse(userMessageText);
+        }
+
+        if (currentTypingIndicator) {
+            chatContainer.removeChild(currentTypingIndicator);
+            currentTypingIndicator = null;
+        }
+
+        addMessage(replyText, true);
+        isTyping = false;
+        processMessageQueue();
+    } catch (error) {
+        if (currentTypingIndicator) {
+            chatContainer.removeChild(currentTypingIndicator);
+            currentTypingIndicator = null;
+        }
+        addMessage("Oops! Kichu problem hoye geche.", true);
+        isTyping = false;
+        processMessageQueue();
+    }
+}
+
+// ===== GEMINI API CALL =====
+async function getGeminiResponse(messageText) {
+    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-preview-02-05:generateContent?key=${API_KEY}`;
+
+    conversationHistory.push({ role: "user", parts: [{ text: messageText }] });
+
+    const requestBody = {
+        systemInstruction: {
+            role: "user",
+            parts: [{ text: Instruction }]
+        },
+        contents: conversationHistory,
+        generationConfig: {
+            temperature: 1,
+            topK: 64,
+            topP: 0.95,
+            maxOutputTokens: 2048,
+            responseMimeType: "text/plain"
+        }
+    };
+
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+        const data = await response.json();
+        if (data.candidates?.length > 0 && data.candidates[0].content?.parts?.length > 0) {
+            const modelResponseText = data.candidates[0].content.parts[0].text;
+            conversationHistory.push({ role: "model", parts: [{ text: modelResponseText }] });
+            if (conversationHistory.length > 10) conversationHistory = conversationHistory.slice(2);
+            return modelResponseText;
+        } else {
+            return "Arre! Ki holo? Bol na.";
+        }
+    } catch (error) {
+        console.error("Error calling Gemini API:", error);
+        return "Ami kichu bujhchilam na, abar bol toh.";
+    }
+}
+</script>
+
+</body>
+</html>
